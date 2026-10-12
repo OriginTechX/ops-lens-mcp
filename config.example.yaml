@@ -1,0 +1,28 @@
+# ops-lens-mcp configuration
+
+defaults:
+  max_log_lines: 250
+  max_bytes: 65536 # 64 KB
+  strip_ansi: true
+
+targets:
+  # 1. Kubernetes Target (e.g., Production cluster)
+  prod-k8s:
+    driver: k8s
+    kubeconfig: "${KUBECONFIG:-~/.kube/config}"
+    context: "${PROD_K8S_CONTEXT:-default}"
+    namespace: "${PROD_K8S_NAMESPACE:-default}"
+    allow_namespaces:
+      - default
+      - dmei-*
+      - ingress-*
+
+  # 2. Remote Docker Compose Target over SSH (e.g., Staging VPS)
+  staging-vps:
+    driver: docker-compose
+    ssh:
+      host: "${STAGING_SSH_HOST:-staging.example.com}"
+      port: 22
+      user: "${STAGING_SSH_USER:-ai-diag}"
+      key_file: "${STAGING_SSH_KEY:-~/.ssh/id_ed25519}"
+    compose_path: "/opt/app/docker-compose.yml"
