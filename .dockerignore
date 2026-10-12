@@ -1,0 +1,9 @@
+.git
+.github
+dist/
+bin/
+*.log
+*.tmp
+.DS_Store
+config.yaml
+config.local.yaml
