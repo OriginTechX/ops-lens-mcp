@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,10 +63,7 @@ func ExpandEnv(s string) string {
 		if len(submatches) > 2 {
 			defaultVal = submatches[2]
 		}
-		if val, ok := os.LookupEnv(varName); ok && val != "" {
-			return val
-		}
-		return defaultVal
+		return cmp.Or(os.Getenv(varName), defaultVal)
 	})
 }
 
@@ -90,13 +88,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config yaml: %w", err)
 	}
 
-	// Apply safe defaults
-	if cfg.Defaults.MaxLogLines <= 0 {
-		cfg.Defaults.MaxLogLines = 250
-	}
-	if cfg.Defaults.MaxBytes <= 0 {
-		cfg.Defaults.MaxBytes = 64 * 1024 // 64 KB
-	}
+	// Apply safe defaults using cmp.Or
+	cfg.Defaults.MaxLogLines = cmp.Or(cfg.Defaults.MaxLogLines, 250)
+	cfg.Defaults.MaxBytes = cmp.Or(cfg.Defaults.MaxBytes, 64*1024) // 64 KB
 
 	return &cfg, nil
 }
