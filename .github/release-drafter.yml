@@ -1,0 +1,177 @@
+# .github/release-drafter.yml
+
+# Configuration for the Release Drafter GitHub Action.
+# This file controls how release notes are automatically generated.
+
+# Name of the template for the release notes.
+name-template: 'v$RESOLVED_VERSION'
+
+# Tag template for the new release.
+tag-template: 'v$RESOLVED_VERSION'
+
+# Instructs release-drafter how to bump versions based on PR labels.
+version-resolver:
+  major:
+    labels:
+      - 'breaking'
+      - 'major'
+  minor:
+    labels:
+      - 'feature'
+      - 'enhancement'
+  patch:
+    labels:
+      - 'fix'
+      - 'bug'
+      - 'chore'
+      - 'docs'
+      - 'test'
+      - 'build'
+      - 'dependencies'
+      - 'style'
+      - 'refactor'
+      - 'ci/cd'
+  default: patch
+
+# Categories for changes, based on pull request labels.
+# The order here defines the priority. A PR will only appear in the FIRST category it matches.
+categories:
+  - title: '⚠️ Breaking Changes'
+    labels:
+      - 'breaking'
+      - 'major'
+  - title: '🚀 Features'
+    labels:
+      - 'feature'
+      - 'enhancement'
+    # Exclude PRs that are already categorized as breaking changes.
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'fix'
+      - 'bug'
+    # Exclude PRs that are already in higher-priority categories.
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+      - 'feature'
+      - 'enhancement'
+  - title: '♻️ Refactoring'
+    labels:
+      - 'refactor'
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+      - 'feature'
+      - 'enhancement'
+      - 'fix'
+      - 'bug'
+  - title: '🚨 CI/CD'
+    labels:
+      - 'ci/cd'
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+      - 'feature'
+      - 'enhancement'
+      - 'fix'
+      - 'bug'
+      - 'refactor'
+  - title: '🔧 Build System'
+    labels:
+      - 'build'
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+      - 'feature'
+      - 'enhancement'
+      - 'fix'
+      - 'bug'
+      - 'refactor'
+      - 'ci/cd'
+  - title: '📦 Dependencies'
+    labels:
+      - 'dependencies'
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+      - 'feature'
+      - 'enhancement'
+      - 'fix'
+      - 'bug'
+      - 'refactor'
+      - 'ci/cd'
+      - 'build'
+  - title: '🧪 Tests'
+    labels:
+      - 'test'
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+      - 'feature'
+      - 'enhancement'
+      - 'fix'
+      - 'bug'
+      - 'refactor'
+      - 'ci/cd'
+      - 'build'
+      - 'dependencies'
+  - title: '📝 Documentation'
+    labels:
+      - 'docs'
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+      - 'feature'
+      - 'enhancement'
+      - 'fix'
+      - 'bug'
+      - 'refactor'
+      - 'ci/cd'
+      - 'build'
+      - 'dependencies'
+      - 'test'
+  - title: '🎨 Code Style'
+    labels:
+      - 'style'
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+      - 'feature'
+      - 'enhancement'
+      - 'fix'
+      - 'bug'
+      - 'refactor'
+      - 'ci/cd'
+      - 'build'
+      - 'dependencies'
+      - 'test'
+      - 'docs'
+  - title: '🧰 Maintenance'
+    labels:
+      - 'chore'
+    exclude-labels:
+      - 'breaking'
+      - 'major'
+      - 'feature'
+      - 'enhancement'
+      - 'fix'
+      - 'bug'
+      - 'refactor'
+      - 'ci/cd'
+      - 'build'
+      - 'dependencies'
+      - 'test'
+      - 'docs'
+      - 'style'
+
+# Template for the release body.
+# This is simpler and avoids the problematic '$NEXT_TAG'.
+template: |
+  ## Changes
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
