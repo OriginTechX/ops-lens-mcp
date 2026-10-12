@@ -1,12 +1,19 @@
 # ops-lens-mcp configuration
+# Environment variables (${VAR:-default}) are expanded at runtime.
+# You can define them in a local .env file or your shell/container environment.
+#
+# NOTE: You can use ANY custom variable names you prefer in ${...}.
+# Just make sure they match the names defined in your .env file!
 
 defaults:
-  max_log_lines: 250
-  max_bytes: 65536 # 64 KB
-  strip_ansi: true
+  max_log_lines: ${MAX_LOG_LINES:-250}
+  max_bytes: ${MAX_BYTES:-65536} # 64 KB
+  strip_ansi: ${STRIP_ANSI:-true}
 
 targets:
-  # 1. Kubernetes Target (e.g., Production cluster)
+  # -------------------------------------------------------------
+  # 1. Kubernetes Target (e.g. Production Cluster)
+  # -------------------------------------------------------------
   prod-k8s:
     driver: k8s
     kubeconfig: "${KUBECONFIG:-~/.kube/config}"
@@ -17,12 +24,38 @@ targets:
       - dmei-*
       - ingress-*
 
-  # 2. Remote Docker Compose Target over SSH (e.g., Staging VPS)
+  # -------------------------------------------------------------
+  # 2. Remote Docker Compose Target (VPS 1: Staging Backend)
+  # -------------------------------------------------------------
   staging-vps:
     driver: docker-compose
     ssh:
       host: "${STAGING_SSH_HOST:-staging.example.com}"
-      port: 22
+      port: ${STAGING_SSH_PORT:-22}
       user: "${STAGING_SSH_USER:-ai-diag}"
       key_file: "${STAGING_SSH_KEY:-~/.ssh/id_ed25519}"
-    compose_path: "/opt/app/docker-compose.yml"
+    compose_path: "${STAGING_COMPOSE_PATH:-/opt/app/docker-compose.yml}"
+
+  # -------------------------------------------------------------
+  # 3. Remote Docker Compose Target (VPS 2: Secondary / Worker)
+  # -------------------------------------------------------------
+  worker-vps:
+    driver: docker-compose
+    ssh:
+      host: "${WORKER_SSH_HOST:-192.168.1.120}"
+      port: ${WORKER_SSH_PORT:-22}
+      user: "${WORKER_SSH_USER:-ai-diag}"
+      key_file: "${WORKER_SSH_KEY:-~/.ssh/id_ed25519}"
+    compose_path: "${WORKER_COMPOSE_PATH:-/opt/worker/docker-compose.yml}"
+
+  # -------------------------------------------------------------
+  # 4. Example of Custom-Named VPS (Uncomment and customize as needed)
+  # -------------------------------------------------------------
+  # custom-media-vps:
+  #   driver: docker-compose
+  #   ssh:
+  #     host: "${MY_CUSTOM_VPS_HOST}"
+  #     port: ${MY_CUSTOM_VPS_PORT:-22}
+  #     user: "${MY_CUSTOM_VPS_USER:-ubuntu}"
+  #     key_file: "${MY_CUSTOM_VPS_KEY:-~/.ssh/id_ed25519}"
+  #   compose_path: "${MY_CUSTOM_COMPOSE_PATH:-/srv/docker-compose.yml}"
