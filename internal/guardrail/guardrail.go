@@ -64,3 +64,47 @@ func FilterLines(s, pattern string) string {
 	}
 	return strings.TrimRight(buf.String(), "\n")
 }
+
+var safeHostPrefixes = []string{
+	"/etc/traefik",
+	"/etc/nginx",
+	"/etc/caddy",
+	"/etc/systemd/system",
+	"/etc/docker",
+	"/var/log",
+	"/opt",
+}
+
+var blockedHostSubstrings = []string{
+	"shadow",
+	"id_rsa",
+	"id_ed25519",
+	"id_ecdsa",
+	"authorized_keys",
+	".env",
+	"credentials",
+	"private",
+}
+
+// IsSafeHostConfigPath validates that a target file path on the host is safe to read.
+func IsSafeHostConfigPath(p string) bool {
+	cleaned := strings.TrimSpace(p)
+	if cleaned == "" || strings.Contains(cleaned, "..") {
+		return false
+	}
+
+	lower := strings.ToLower(cleaned)
+	for _, blocked := range blockedHostSubstrings {
+		if strings.Contains(lower, blocked) {
+			return false
+		}
+	}
+
+	for _, prefix := range safeHostPrefixes {
+		if strings.HasPrefix(cleaned, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
