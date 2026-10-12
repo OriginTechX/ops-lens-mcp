@@ -105,7 +105,7 @@ func (d *Driver) runCommand(ctx context.Context, cmd string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("ssh new session: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	var stdout, stderr bytes.Buffer
 	session.Stdout = &stdout
@@ -264,6 +264,55 @@ func (d *Driver) GetMetrics(ctx context.Context) (*driver.HostMetrics, error) {
 	}
 
 	return metrics, nil
+}
+
+// GetJournalLogs inspects host systemd logs (e.g. host Traefik, Docker daemon, OS errors).
+func (d *Driver) GetJournalLogs(ctx context.Context, query driver.JournalQuery) (string, error) {
+	tail := query.Tail
+	if tail <= 0 {
+		tail = 200
+	}
+
+	var args []string
+	args = append(args, "--no-pager")
+	args = append(args, fmt.Sprintf("-n %d", tail))
+
+	if query.Unit != "" {
+		args = append(args, fmt.Sprintf("-u %s", query.Unit))
+	}
+	if query.Priority != "" {
+		args = append(args, fmt.Sprintf("-p %s", query.Priority))
+	}
+	if query.Since != "" {
+		args = append(args, fmt.Sprintf("--since %q", query.Since))
+	}
+
+	cmd := fmt.Sprintf("journalctl %s 2>&1", strings.Join(args, " "))
+	out, err := d.runCommand(ctx, cmd)
+	if err != nil {
+		return "", fmt.Errorf("journalctl query: %w", err)
+	}
+
+	cleaned := guardrail.StripANSI(out)
+	if query.Filter != "" {
+		cleaned = guardrail.FilterLines(cleaned, query.Filter)
+	}
+	return cleaned, nil
+}
+
+// ReadHostConfig safely inspects host configuration files within safe directories.
+func (d *Driver) ReadHostConfig(ctx context.Context, filePath string) (string, error) {
+	if !guardrail.IsSafeHostConfigPath(filePath) {
+		return "", fmt.Errorf("access to path %q is prohibited by security policy", filePath)
+	}
+
+	cmd := fmt.Sprintf("head -n 500 %q 2>&1", filePath)
+	out, err := d.runCommand(ctx, cmd)
+	if err != nil {
+		return "", fmt.Errorf("read host file: %w", err)
+	}
+
+	return strings.TrimRight(out, "\n"), nil
 }
 
 // Close closes the SSH connection.
