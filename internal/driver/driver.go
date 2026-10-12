@@ -36,6 +36,15 @@ type LogQuery struct {
 	Filter  string // regex or keyword filter
 }
 
+// JournalQuery defines parameters for systemd journal inspection.
+type JournalQuery struct {
+	Unit     string // systemd unit name (e.g., "traefik", "docker", "nginx")
+	Priority string // e.g. "err", "warning", "info" (maps to -p)
+	Tail     int    // number of lines
+	Since    string // e.g. "1h", "24h"
+	Filter   string // regex or keyword filter
+}
+
 // Driver defines the standard diagnostic interface across both K8s and Docker.
 type Driver interface {
 	// ListServices lists observable services, containers, or pods.
@@ -52,6 +61,12 @@ type Driver interface {
 
 	// GetMetrics returns node / host resource saturation (CPU, RAM, Disk).
 	GetMetrics(ctx context.Context) (*HostMetrics, error)
+
+	// GetJournalLogs inspects host systemd logs (e.g. host Traefik, Docker daemon, OS errors).
+	GetJournalLogs(ctx context.Context, query JournalQuery) (string, error)
+
+	// ReadHostConfig safely inspects host configuration files within safe directories.
+	ReadHostConfig(ctx context.Context, filePath string) (string, error)
 
 	// Close cleans up network connections or clients.
 	Close() error
