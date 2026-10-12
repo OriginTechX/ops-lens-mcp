@@ -95,7 +95,7 @@ func (d *Driver) GetStatus(ctx context.Context, service string) (*driver.Workloa
 	}
 
 	var restarts int32
-	var state string = string(pod.Status.Phase)
+	state := string(pod.Status.Phase)
 	for _, cs := range pod.Status.ContainerStatuses {
 		restarts += cs.RestartCount
 		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
@@ -108,7 +108,7 @@ func (d *Driver) GetStatus(ctx context.Context, service string) (*driver.Workloa
 		Target:   d.targetName,
 		State:    state,
 		Restarts: restarts,
-		Uptime:   pod.CreationTimestamp.Time.Format("2006-01-02 15:04:05"),
+		Uptime:   pod.CreationTimestamp.Format("2006-01-02 15:04:05"),
 		Health:   string(pod.Status.Phase),
 	}, nil
 }
@@ -129,7 +129,7 @@ func (d *Driver) GetLogs(ctx context.Context, query driver.LogQuery) (string, er
 	if err != nil {
 		return "", fmt.Errorf("stream pod logs: %w", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, stream); err != nil {
@@ -156,24 +156,24 @@ func (d *Driver) DescribeWorkload(ctx context.Context, service string) (string, 
 	})
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Pod: %s (Namespace: %s)\n", pod.Name, pod.Namespace))
-	b.WriteString(fmt.Sprintf("Phase: %s | Node: %s | IP: %s\n", pod.Status.Phase, pod.Spec.NodeName, pod.Status.PodIP))
+	fmt.Fprintf(&b, "Pod: %s (Namespace: %s)\n", pod.Name, pod.Namespace)
+	fmt.Fprintf(&b, "Phase: %s | Node: %s | IP: %s\n", pod.Status.Phase, pod.Spec.NodeName, pod.Status.PodIP)
 
 	b.WriteString("\n--- Containers ---\n")
 	for _, cs := range pod.Status.ContainerStatuses {
-		b.WriteString(fmt.Sprintf("Container %s: Ready=%v, Restarts=%d\n", cs.Name, cs.Ready, cs.RestartCount))
+		fmt.Fprintf(&b, "Container %s: Ready=%v, Restarts=%d\n", cs.Name, cs.Ready, cs.RestartCount)
 		if cs.State.Waiting != nil {
-			b.WriteString(fmt.Sprintf("  Waiting: %s - %s\n", cs.State.Waiting.Reason, cs.State.Waiting.Message))
+			fmt.Fprintf(&b, "  Waiting: %s - %s\n", cs.State.Waiting.Reason, cs.State.Waiting.Message)
 		}
 		if cs.State.Terminated != nil {
-			b.WriteString(fmt.Sprintf("  Terminated: ExitCode=%d Reason=%s Message=%s\n", cs.State.Terminated.ExitCode, cs.State.Terminated.Reason, cs.State.Terminated.Message))
+			fmt.Fprintf(&b, "  Terminated: ExitCode=%d Reason=%s Message=%s\n", cs.State.Terminated.ExitCode, cs.State.Terminated.Reason, cs.State.Terminated.Message)
 		}
 	}
 
 	if events != nil && len(events.Items) > 0 {
 		b.WriteString("\n--- Recent Events ---\n")
 		for _, e := range events.Items {
-			b.WriteString(fmt.Sprintf("[%s] %s: %s\n", e.Type, e.Reason, e.Message))
+			fmt.Fprintf(&b, "[%s] %s: %s\n", e.Type, e.Reason, e.Message)
 		}
 	}
 
@@ -188,7 +188,7 @@ func (d *Driver) GetMetrics(ctx context.Context) (*driver.HostMetrics, error) {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Cluster Nodes: %d\n", len(nodes.Items)))
+	fmt.Fprintf(&b, "Cluster Nodes: %d\n", len(nodes.Items))
 	for _, n := range nodes.Items {
 		ready := "NotReady"
 		for _, cond := range n.Status.Conditions {
@@ -197,14 +197,24 @@ func (d *Driver) GetMetrics(ctx context.Context) (*driver.HostMetrics, error) {
 				break
 			}
 		}
-		b.WriteString(fmt.Sprintf("Node: %s (%s) | InternalIP: %s | Arch: %s/%s\n",
-			n.Name, ready, n.Status.Addresses[0].Address, n.Status.NodeInfo.OperatingSystem, n.Status.NodeInfo.Architecture))
+		fmt.Fprintf(&b, "Node: %s (%s) | InternalIP: %s | Arch: %s/%s\n",
+			n.Name, ready, n.Status.Addresses[0].Address, n.Status.NodeInfo.OperatingSystem, n.Status.NodeInfo.Architecture)
 	}
 
 	return &driver.HostMetrics{
 		Target: d.targetName,
 		Raw:    b.String(),
 	}, nil
+}
+
+// GetJournalLogs is unsupported on remote K8s target without node shell.
+func (d *Driver) GetJournalLogs(ctx context.Context, query driver.JournalQuery) (string, error) {
+	return "", fmt.Errorf("journalctl is not supported on kubernetes driver (use ops_get_logs or ops_describe_workload)")
+}
+
+// ReadHostConfig is unsupported on remote K8s target.
+func (d *Driver) ReadHostConfig(ctx context.Context, filePath string) (string, error) {
+	return "", fmt.Errorf("read host file is not supported on kubernetes driver")
 }
 
 // Close is a no-op for client-go.
