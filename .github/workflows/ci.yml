@@ -78,13 +78,72 @@ jobs:
           version: latest
           args: --timeout=10m
 
-  docker:
-    name: Build & Push Docker Image
+  build-amd64:
+    name: Build & Push AMD64 Image
     needs: [test, lint]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set Image Name to Lowercase
+        run: |
+          echo "IMAGE_NAME_LC=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
+          tags: |
+            type=semver,pattern={{version}},suffix=-amd64
+            type=raw,value=latest-amd64,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=qa-amd64,enable=${{ github.ref_name == 'QA' || github.base_ref == 'QA' }}
+            type=raw,value=QA-amd64,enable=${{ github.ref_name == 'QA' || github.base_ref == 'QA' }}
+            type=ref,event=branch,suffix=-amd64
+            type=sha,prefix=sha-,suffix=-amd64
+
+      - name: Build and Push AMD64 Image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+          provenance: false
+
+  build-arm64:
+    name: Build & Push ARM64 Image
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -114,20 +173,75 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
           tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch
-            type=sha,prefix=sha-
+            type=semver,pattern={{version}},suffix=-arm64
+            type=raw,value=latest-arm64,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=qa-arm64,enable=${{ github.ref_name == 'QA' || github.base_ref == 'QA' }}
+            type=raw,value=QA-arm64,enable=${{ github.ref_name == 'QA' || github.base_ref == 'QA' }}
+            type=ref,event=branch,suffix=-arm64
+            type=sha,prefix=sha-,suffix=-arm64
 
-      - name: Build and Push Docker Image
+      - name: Build and Push ARM64 Image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
           provenance: false
+
+  create-manifest:
+    name: Create Multi-Platform Manifest
+    runs-on: ubuntu-latest
+    needs: [build-amd64, build-arm64]
+    if: success() && needs.build-amd64.result == 'success' && github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-platform manifest
+        run: |
+          AMD_TAGS_RAW="${{ needs.build-amd64.outputs.tags }}"
+          ARM_TAGS_RAW="${{ needs.build-arm64.outputs.tags || '' }}"
+          AMD_TAGS=$(echo "$AMD_TAGS_RAW" | tr ',' '\n' | sed '/^\s*$/d')
+          ARM_TAGS=$(echo "$ARM_TAGS_RAW" | tr ',' '\n' | sed '/^\s*$/d')
+          for AMD_TAG in $AMD_TAGS; do
+            [ -z "$AMD_TAG" ] && continue
+            BASE_TAG=${AMD_TAG%-amd64}
+            EXPECTED_ARM="${BASE_TAG}-arm64"
+            if echo "$ARM_TAGS" | grep -qx "$EXPECTED_ARM"; then
+              echo "Creating multi-platform manifest for ${BASE_TAG} from ${AMD_TAG} and ${EXPECTED_ARM}"
+              docker buildx imagetools create -t "${BASE_TAG}" "${AMD_TAG}" "${EXPECTED_ARM}"
+            else
+              echo "Creating single-arch manifest for ${BASE_TAG} from ${AMD_TAG}"
+              docker buildx imagetools create -t "${BASE_TAG}" "${AMD_TAG}"
+            fi
+          done
+
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [test, lint, build-amd64, build-arm64, create-manifest]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "## Build Summary for \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tests**: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lint**: ${{ needs.lint.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build AMD64**: ${{ needs.build-amd64.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build ARM64**: ${{ needs.build-arm64.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Manifest**: ${{ needs.create-manifest.result }}" >> $GITHUB_STEP_SUMMARY

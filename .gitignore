@@ -1,7 +1,7 @@
 # Binaries
 bin/
 dist/
-ops-lens-mcp
+/ops-lens-mcp
 
 # Private config with credentials
 config.yaml

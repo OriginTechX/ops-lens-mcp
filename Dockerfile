@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 
 # Stage 1: Build the static Go binary
-FROM golang:1.27.2-alpine  AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /app
 
@@ -11,7 +14,7 @@ RUN go mod download
 
 # Copy source code and build stripped static binary
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
     -trimpath \
     -ldflags="-s -w" \
     -o /app/ops-lens-mcp \
