@@ -32,3 +32,26 @@ func TestFilterLines(t *testing.T) {
 		t.Fatalf("expected %q, got %q", expected, got)
 	}
 }
+
+func TestIsSafeHostConfigPath(t *testing.T) {
+	tests := []struct {
+		path string
+		safe bool
+	}{
+		{"/etc/traefik/traefik.yml", true},
+		{"/etc/traefik/dynamic_conf/dmei.yml", true},
+		{"/etc/nginx/nginx.conf", true},
+		{"/var/log/syslog", true},
+		{"/etc/shadow", false},
+		{"/etc/traefik/../shadow", false},
+		{"/root/.ssh/id_ed25519", false},
+		{"/home/user/.env", false},
+		{"", false},
+	}
+
+	for _, tc := range tests {
+		if got := IsSafeHostConfigPath(tc.path); got != tc.safe {
+			t.Errorf("IsSafeHostConfigPath(%q) = %v, want %v", tc.path, got, tc.safe)
+		}
+	}
+}
