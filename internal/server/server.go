@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -51,10 +53,7 @@ func (s *Server) getDriver(targetName string) (driver.Driver, error) {
 
 	tgt, ok := s.cfg.Targets[targetName]
 	if !ok {
-		var available []string
-		for k := range s.cfg.Targets {
-			available = append(available, k)
-		}
+		available := slices.Sorted(maps.Keys(s.cfg.Targets))
 		return nil, fmt.Errorf("target %q not found. Available targets: %s", targetName, strings.Join(available, ", "))
 	}
 
@@ -119,6 +118,24 @@ func (s *Server) registerTools() {
 		mcp.WithDescription("Check host/node resource saturation (CPU load, memory, disk usage, uptime)"),
 		mcp.WithString("target", mcp.Required(), mcp.Description("Target environment name")),
 	), s.handleGetHostMetrics)
+
+	// 7. ops_get_journal_logs
+	s.mcp.AddTool(mcp.NewTool("ops_get_journal_logs",
+		mcp.WithDescription("Query host systemd journal logs (e.g. host Traefik, Docker daemon, Nginx, or OS errors)"),
+		mcp.WithString("target", mcp.Required(), mcp.Description("Target environment name")),
+		mcp.WithString("unit", mcp.Description("Systemd service unit name (e.g. 'traefik', 'docker', 'nginx')")),
+		mcp.WithString("priority", mcp.Description("Syslog priority filter (e.g. 'err', 'warning', 'info')")),
+		mcp.WithNumber("tail", mcp.Description("Number of log lines from tail (default 200)")),
+		mcp.WithString("since", mcp.Description("Time window (e.g. '30m', '2h', 'yesterday')")),
+		mcp.WithString("filter", mcp.Description("Regex pattern or keyword to filter logs")),
+	), s.handleGetJournalLogs)
+
+	// 8. ops_inspect_host_config
+	s.mcp.AddTool(mcp.NewTool("ops_inspect_host_config",
+		mcp.WithDescription("Inspect host configuration files within safe system directories (e.g. /etc/traefik, /etc/nginx, /etc/docker)"),
+		mcp.WithString("target", mcp.Required(), mcp.Description("Target environment name")),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Absolute file path on host (e.g. '/etc/traefik/traefik.yml')")),
+	), s.handleInspectHostConfig)
 }
 
 func (s *Server) handleListTargets(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -202,9 +219,7 @@ func (s *Server) handleGetLogs(ctx context.Context, req mcp.CallToolRequest) (*m
 
 	tail := s.cfg.Defaults.MaxLogLines
 	if rawTail := req.GetInt("tail", 0); rawTail > 0 {
-		if rawTail < tail {
-			tail = rawTail
-		}
+		tail = min(tail, rawTail)
 	}
 
 	since := req.GetString("since", "")
@@ -280,6 +295,77 @@ func (s *Server) handleGetHostMetrics(ctx context.Context, req mcp.CallToolReque
 
 	data, _ := json.MarshalIndent(metrics, "", "  ")
 	return mcp.NewToolResultText(string(data)), nil
+}
+
+func (s *Server) handleGetJournalLogs(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	target, err := req.RequireString("target")
+	if err != nil {
+		return mcp.NewToolResultError("missing 'target' parameter"), nil
+	}
+
+	unit := req.GetString("unit", "")
+	priority := req.GetString("priority", "")
+	tail := s.cfg.Defaults.MaxLogLines
+	if rawTail := req.GetInt("tail", 0); rawTail > 0 {
+		tail = min(tail, rawTail)
+	}
+	since := req.GetString("since", "")
+	filter := req.GetString("filter", "")
+
+	d, err := s.getDriver(target)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	logs, err := d.GetJournalLogs(ctx, driver.JournalQuery{
+		Unit:     unit,
+		Priority: priority,
+		Tail:     tail,
+		Since:    since,
+		Filter:   filter,
+	})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to get journal logs: %v", err)), nil
+	}
+
+	// Apply byte and line guardrails
+	if s.cfg.Defaults.StripANSI {
+		logs = guardrail.StripANSI(logs)
+	}
+	logs, _ = guardrail.TruncateLines(logs, s.cfg.Defaults.MaxLogLines)
+	logs, _ = guardrail.TruncateBytes(logs, s.cfg.Defaults.MaxBytes)
+
+	if strings.TrimSpace(logs) == "" {
+		return mcp.NewToolResultText("(no journal logs found matching criteria)"), nil
+	}
+
+	return mcp.NewToolResultText(logs), nil
+}
+
+func (s *Server) handleInspectHostConfig(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	target, err := req.RequireString("target")
+	if err != nil {
+		return mcp.NewToolResultError("missing 'target' parameter"), nil
+	}
+	filePath, err := req.RequireString("path")
+	if err != nil {
+		return mcp.NewToolResultError("missing 'path' parameter"), nil
+	}
+
+	d, err := s.getDriver(target)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	content, err := d.ReadHostConfig(ctx, filePath)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to read host config: %v", err)), nil
+	}
+
+	// Apply byte guardrail
+	content, _ = guardrail.TruncateBytes(content, s.cfg.Defaults.MaxBytes)
+
+	return mcp.NewToolResultText(content), nil
 }
 
 // Close closes all driver connections.
